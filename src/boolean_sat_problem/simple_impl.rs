@@ -6,7 +6,7 @@ pub struct ConjunctiveNormalForm<V> {
 
 impl<V> super::ConjunctiveNormalForm<V, Clause<V>> for ConjunctiveNormalForm<V>
 where
-    V: Eq + Clone,
+    V: Eq + Clone + std::hash::Hash,
 {
     fn new(clauses: &[Clause<V>]) -> Self {
         Self {
@@ -29,7 +29,7 @@ pub struct Clause<V> {
 
 impl<V> super::Clause<V> for Clause<V>
 where
-    V: PartialEq + Clone,
+    V: PartialEq + Eq + Clone + std::hash::Hash,
 {
     fn new(literals: &[Literal<V>]) -> Self {
         Self {

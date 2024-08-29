@@ -10,7 +10,11 @@ pub enum SatStatus {
 }
 
 /// an AND combined list of [Clause]s
-pub trait ConjunctiveNormalForm<V: PartialEq, C: Clause<V>> {
+pub trait ConjunctiveNormalForm<V, C>
+where
+    V: PartialEq + std::hash::Hash + Eq + Clone,
+    C: Clause<V>,
+{
     fn new(clauses: &[C]) -> Self;
     fn clauses<'s>(&'s self) -> impl Iterator<Item = &'s C>
     where
@@ -31,8 +35,18 @@ pub trait ConjunctiveNormalForm<V: PartialEq, C: Clause<V>> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnitClauseCheckResult<V> {
+    Sat,
+    Unknown,
+    PropagatedUnit(Literal<V>),
+}
+
 /// an OR combined list of [Literal]s
-pub trait Clause<V: PartialEq> {
+pub trait Clause<V>
+where
+    V: PartialEq + Eq + std::hash::Hash + Clone,
+{
     fn new(literals: &[Literal<V>]) -> Self;
     fn literals<'s>(&'s self) -> impl Iterator<Item = &'s Literal<V>>
     where
@@ -56,6 +70,34 @@ pub trait Clause<V: PartialEq> {
             SatStatus::Unsat
         } else {
             SatStatus::Unknown
+        }
+    }
+
+    fn unit_clause_check(&self, known_values: &HashMap<V, bool>) -> UnitClauseCheckResult<V> {
+        let mut unsolved_literal = None;
+        let mut potential_unsat = false;
+        for literal in self.literals() {
+            match known_values.get(literal.variable()) {
+                None => {
+                    if unsolved_literal.is_none() {
+                        unsolved_literal = Some(literal);
+                    } else {
+                        potential_unsat = true;
+                    }
+                }
+                Some(expected) => {
+                    if *expected == literal.is_plain() {
+                        return UnitClauseCheckResult::Sat;
+                    }
+                }
+            }
+        }
+        if potential_unsat {
+            UnitClauseCheckResult::Unknown
+        } else if let Some(lit) = unsolved_literal {
+            UnitClauseCheckResult::PropagatedUnit((*lit).clone())
+        } else {
+            UnitClauseCheckResult::Sat
         }
     }
 }
@@ -143,6 +185,57 @@ mod tests {
         assert_eq!(
             clause.evaluate(&HashMap::from([('d', false)])),
             SatStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn clause_unit_clause_check() {
+        let clause = simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]);
+
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::new()),
+            UnitClauseCheckResult::Unknown
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', true)])),
+            UnitClauseCheckResult::Sat
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', false)])),
+            UnitClauseCheckResult::PropagatedUnit(Literal::Negated('b'))
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('b', true)])),
+            UnitClauseCheckResult::PropagatedUnit(Literal::Plain('a'))
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('b', false)])),
+            UnitClauseCheckResult::Sat
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('c', true)])),
+            UnitClauseCheckResult::Unknown
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('c', false)])),
+            UnitClauseCheckResult::Unknown
+        );
+    }
+
+    #[test]
+    fn empty_clause_unit_clause_check() {
+        let clause = simple_impl::Clause::new(&[]);
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::new()),
+            UnitClauseCheckResult::Sat
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', true)])),
+            UnitClauseCheckResult::Sat
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', false)])),
+            UnitClauseCheckResult::Sat
         );
     }
 
