@@ -9,6 +9,17 @@ pub enum SatStatus {
     Unknown,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnitClauseChecksResult<V, C>
+where
+    V: PartialEq + std::hash::Hash + Eq + Clone,
+    C: Clause<V>,
+{
+    /// a conflict was detected, contains the learned resulting clause
+    Conflict(Vec<C>),
+    LiteralsDerived(Vec<Literal<V>>),
+}
+
 /// an AND combined list of [Clause]s
 pub trait ConjunctiveNormalForm<V, C>
 where
@@ -46,6 +57,65 @@ where
             }
         }
         None
+    }
+
+    fn unit_clause_checks(&self, known_values: &HashMap<V, bool>) -> UnitClauseChecksResult<V, C> {
+        let mut derived_values = HashMap::new();
+        for clause in self.clauses() {
+            match clause.unit_clause_check(known_values) {
+                UnitClauseCheckResult::Sat | UnitClauseCheckResult::Unknown => {}
+                UnitClauseCheckResult::PropagatedUnit(lit) => {
+                    //TODO: should multiple clauses causing a variable state be saved?
+                    // it allows to derive more than one clause if a conflict is found,
+                    // but it also requires heap allocations and increases the difficulty of
+                    // backtracking
+                    let mut v = derived_values
+                        .entry(lit.variable().clone())
+                        .or_insert((vec![], vec![]));
+                    if lit.is_plain() {
+                        v.0.push(clause);
+                    } else {
+                        v.1.push(clause);
+                    }
+                    //TODO: should conflicts be deteced here(faster), or rather later, to gain more
+                    //learnings?
+                    if (!v.0.is_empty()) && (!v.1.is_empty()) {
+                        //conflict found
+                        let mut learned_clauses =
+                            Vec::with_capacity(usize::max(v.0.len(), v.1.len()));
+                        for clause_assuming_v_true in &v.0 {
+                            for clause_assuming_v_false in &v.1 {
+                                let learned_clause = C::from_conflict(
+                                    lit.variable(),
+                                    clause_assuming_v_true,
+                                    clause_assuming_v_false,
+                                );
+                                learned_clauses.push(learned_clause);
+                            }
+                        }
+                        return UnitClauseChecksResult::Conflict(learned_clauses);
+                    }
+                }
+            }
+        }
+        UnitClauseChecksResult::LiteralsDerived(
+            derived_values
+                .into_iter()
+                .map(|(v, (plain_clauses, negated_clauses))| {
+                    debug_assert!(
+                        !plain_clauses.is_empty() || !negated_clauses.is_empty(),
+                        "since a variable was in the map, it should have a clause that caused it to be");
+                    debug_assert!(
+                        plain_clauses.is_empty() || negated_clauses.is_empty(),
+                        "conflict checks were run above, yet conflict was reported here");
+                    if plain_clauses.is_empty() {
+                        Literal::Negated(v)
+                    } else {
+                        Literal::Plain(v)
+                    }
+                })
+                .collect(),
+        )
     }
 }
 
@@ -378,6 +448,46 @@ mod tests {
             3,
             "all variables should have been picked, but only these literals wre returned {:#?}",
             literals_picked
+        );
+    }
+
+    #[test]
+    fn cnf_unit_clause_checks() {
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&[
+            simple_impl::Clause::new(&[Literal::Plain('a')]),
+            simple_impl::Clause::new(&[Literal::Negated('b'), Literal::Plain('c')]),
+            simple_impl::Clause::new(&[Literal::Negated('c')]),
+        ]);
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::new()),
+            UnitClauseChecksResult::LiteralsDerived(vec![
+                Literal::Plain('a'),
+                Literal::Negated('c')
+            ])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('a', true), ('c', false)])),
+            UnitClauseChecksResult::LiteralsDerived(vec![Literal::Negated('b')])
+        );
+    }
+
+    #[test]
+    fn cnf_unit_clause_checks_with_conflict() {
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&[
+            simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Plain('b')]),
+            simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]),
+        ]);
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::new()),
+            UnitClauseChecksResult::LiteralsDerived(vec![])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('a', false)])),
+            UnitClauseChecksResult::Conflict(vec![Clause::new(&[Literal::Plain('a')])])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('b', false)])),
+            UnitClauseChecksResult::LiteralsDerived(vec![Literal::Plain('a')])
         );
     }
 }
