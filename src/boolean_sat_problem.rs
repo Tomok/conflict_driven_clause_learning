@@ -78,7 +78,7 @@ where
         // with
         //   clause_assuming_v_true = t1 ∨ t2 ∨ t3 ... ∨ v
         //   clause_assuming_v_false = f1 ∨ f2 ∨ f3 ... ∨ v
-        // we know, that !t1 ∨ !t2 ∨ ... ∨ !f1 ∨ !f2 ∨ ... == true
+        // we know, that t1 ∨ t2 ∨ ... ∨ f1 ∨ f2 ∨ ... == true
         // to resolve the conflict for v
         let mut derived_clause_literals = Vec::with_capacity(
             clause_assuming_v_true.literals().len() + clause_assuming_v_false.literals().len() - 2, /* removal of conflicting variable in each clause */
@@ -86,10 +86,9 @@ where
         for clause in [clause_assuming_v_true, clause_assuming_v_false] {
             for literal in clause.literals() {
                 if literal.variable() != v {
-                    let inverted = literal.invert();
-                    if !derived_clause_literals.contains(&inverted) {
+                    if !derived_clause_literals.contains(literal) {
                         debug_assert!(!derived_clause_literals.contains(literal));
-                        derived_clause_literals.push(inverted);
+                        derived_clause_literals.push((*literal).clone());
                     }
                 }
             }
@@ -254,7 +253,7 @@ mod tests {
         //two clauses, with conflict in variable 'v'
         let clause1 = simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Plain('v')]);
         let clause2 = simple_impl::Clause::new(&[Literal::Negated('b'), Literal::Negated('v')]);
-        let expected = simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Plain('b')]);
+        let expected = simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]);
         let result = Clause::from_conflict(&'v', &clause1, &clause2);
         assert_eq!(result, expected);
     }
@@ -268,7 +267,7 @@ mod tests {
             Literal::Negated('b'),
             Literal::Negated('v'),
         ]);
-        let expected = simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Plain('b')]);
+        let expected = simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]);
         let result = Clause::from_conflict(&'v', &clause1, &clause2);
         assert_eq!(result, expected);
     }
