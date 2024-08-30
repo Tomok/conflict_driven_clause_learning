@@ -33,6 +33,20 @@ where
         }
         SatStatus::Sat
     }
+
+    /// returns a [Literal] the Variable of which is not yet known to be defined
+    fn pick_literal(&self, already_picked: &HashMap<V, bool>) -> Option<Literal<V>> {
+        for clause in self.clauses() {
+            for literal in clause.literals() {
+                if !already_picked.contains_key(literal.variable()) {
+                    // intentionally inverting the found literal here, that way there is a chance
+                    // of the unit clause check deriving a value using this clause
+                    return Some(literal.invert());
+                }
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,28 +62,27 @@ where
     V: PartialEq + Eq + std::hash::Hash + Clone,
 {
     fn new(literals: &[Literal<V>]) -> Self;
-    
+
     ///generates a new clause from two clauses causing v to have a conflicting value
     ///the conflict is that all other [Literal]s in both clauses evaluate to false
     ///and one clause hence forcing v to be true, and the other causing v to be false
-    ///WARNING: v needs to be the only conflict in these clauses, 
+    ///WARNING: v needs to be the only conflict in these clauses,
     ///i.e. no other variable may be in both clauses with differing values,
     ///for debug builds this is asserted, for release builds this is not checked
-    fn from_conflict(v: &V,clause_assuming_v_true: &Self, clause_assuming_v_false: &Self) -> Self
+    fn from_conflict(v: &V, clause_assuming_v_true: &Self, clause_assuming_v_false: &Self) -> Self
     where
         V: PartialEq + std::hash::Hash + Eq + Clone,
         Self: Sized,
     {
         // known:  (clause_assuming_v_true ∧ clause_assuming_v_false) == false
-        // with 
+        // with
         //   clause_assuming_v_true = t1 ∨ t2 ∨ t3 ... ∨ v
         //   clause_assuming_v_false = f1 ∨ f2 ∨ f3 ... ∨ v
         // we know, that !t1 ∨ !t2 ∨ ... ∨ !f1 ∨ !f2 ∨ ... == true
         // to resolve the conflict for v
         let mut derived_clause_literals = Vec::with_capacity(
-            clause_assuming_v_true.literals().len() 
-            + clause_assuming_v_false.literals().len()
-            - 2 /* removal of conflicting variable in each clause */);
+            clause_assuming_v_true.literals().len() + clause_assuming_v_false.literals().len() - 2, /* removal of conflicting variable in each clause */
+        );
         for clause in [clause_assuming_v_true, clause_assuming_v_false] {
             for literal in clause.literals() {
                 if literal.variable() != v {
@@ -181,6 +194,8 @@ impl<V> Literal<V> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
     #[test]
@@ -237,28 +252,24 @@ mod tests {
     #[test]
     fn clause_from_conflict() {
         //two clauses, with conflict in variable 'v'
-        let clause1 = simple_impl::Clause::new(
-            &[Literal::Plain('a'), Literal::Plain('v')]);
-        let clause2 = simple_impl::Clause::new(
-            &[Literal::Negated('b'), Literal::Negated('v')]);
-        let expected = simple_impl::Clause::new(
-            &[Literal::Negated('a'), Literal::Plain('b')]);
-        let result = Clause::from_conflict(
-            &'v', &clause1, &clause2);
+        let clause1 = simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Plain('v')]);
+        let clause2 = simple_impl::Clause::new(&[Literal::Negated('b'), Literal::Negated('v')]);
+        let expected = simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Plain('b')]);
+        let result = Clause::from_conflict(&'v', &clause1, &clause2);
         assert_eq!(result, expected);
     }
 
     #[test]
     fn clause_from_conflict_and_overlap() {
         //two clauses, with conflict in variable 'v' and both using 'a'
-        let clause1 = simple_impl::Clause::new(
-            &[Literal::Plain('a'), Literal::Plain('v')]);
-        let clause2 = simple_impl::Clause::new(
-            &[Literal::Plain('a'), Literal::Negated('b'), Literal::Negated('v')]);
-        let expected = simple_impl::Clause::new(
-            &[Literal::Negated('a'), Literal::Plain('b')]);
-        let result = Clause::from_conflict(
-            &'v', &clause1, &clause2);
+        let clause1 = simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Plain('v')]);
+        let clause2 = simple_impl::Clause::new(&[
+            Literal::Plain('a'),
+            Literal::Negated('b'),
+            Literal::Negated('v'),
+        ]);
+        let expected = simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Plain('b')]);
+        let result = Clause::from_conflict(&'v', &clause1, &clause2);
         assert_eq!(result, expected);
     }
 
@@ -340,6 +351,34 @@ mod tests {
         assert_eq!(
             cnf.evaluate(&HashMap::from([('a', true), ('c', false)])),
             SatStatus::Sat
+        );
+    }
+
+    #[test]
+    fn cnf_pick_literal() {
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&[
+            simple_impl::Clause::new(&[Literal::Plain('a')]),
+            simple_impl::Clause::new(&[Literal::Negated('b'), Literal::Negated('c')]),
+            simple_impl::Clause::new(&[Literal::Negated('c')]),
+        ]);
+        let mut literals_picked = HashMap::new();
+        let all_vars = HashSet::from(['a', 'b', 'c']);
+
+        loop {
+            let literal = cnf.pick_literal(&literals_picked);
+            let literal = match literal {
+                None => break,
+                Some(v) => v,
+            };
+            assert!(all_vars.contains(literal.variable()));
+            assert!(!literals_picked.contains_key(literal.variable()));
+            literals_picked.insert(*literal.variable(), literal.is_plain());
+        }
+        assert_eq!(
+            literals_picked.len(),
+            3,
+            "all variables should have been picked, but only these literals wre returned {:#?}",
+            literals_picked
         );
     }
 }
