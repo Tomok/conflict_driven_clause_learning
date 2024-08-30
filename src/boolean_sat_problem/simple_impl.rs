@@ -22,10 +22,29 @@ where
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug)]
 pub struct Clause<V> {
     literals: Vec<Literal<V>>,
 }
+
+impl<V> PartialEq for Clause<V>
+where
+    V: PartialEq + Eq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        if self.literals.len() != other.literals.len() {
+            return false;
+        }
+        for literal in &self.literals {
+            if !other.literals.contains(literal) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl<V> Eq for Clause<V> where V: PartialEq + Eq {}
 
 impl<V> super::Clause<V> for Clause<V>
 where
