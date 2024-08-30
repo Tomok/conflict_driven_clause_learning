@@ -131,6 +131,16 @@ impl<V> Literal<V> {
             Literal::Negated(_) => true,
         }
     }
+
+    pub fn invert(&self) -> Literal<V>
+    where
+        V: Clone,
+    {
+        match self {
+            Literal::Plain(v) => Literal::Negated((*v).clone()),
+            Literal::Negated(v) => Literal::Plain((*v).clone()),
+        }
+    }
 }
 
 #[cfg(test)]
