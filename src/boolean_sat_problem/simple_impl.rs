@@ -37,7 +37,7 @@ where
         }
     }
 
-    fn literals<'s>(&'s self) -> impl Iterator<Item = &'s Literal<V>>
+    fn literals<'s>(&'s self) -> impl ExactSizeIterator<Item = &'s Literal<V>>
     where
         V: 's,
     {

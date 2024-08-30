@@ -48,7 +48,43 @@ where
     V: PartialEq + Eq + std::hash::Hash + Clone,
 {
     fn new(literals: &[Literal<V>]) -> Self;
-    fn literals<'s>(&'s self) -> impl Iterator<Item = &'s Literal<V>>
+    
+    ///generates a new clause from two clauses causing v to have a conflicting value
+    ///the conflict is that all other [Literal]s in both clauses evaluate to false
+    ///and one clause hence forcing v to be true, and the other causing v to be false
+    ///WARNING: v needs to be the only conflict in these clauses, 
+    ///i.e. no other variable may be in both clauses with differing values,
+    ///for debug builds this is asserted, for release builds this is not checked
+    fn from_conflict(v: &V,clause_assuming_v_true: &Self, clause_assuming_v_false: &Self) -> Self
+    where
+        V: PartialEq + std::hash::Hash + Eq + Clone,
+        Self: Sized,
+    {
+        // known:  (clause_assuming_v_true ∧ clause_assuming_v_false) == false
+        // with 
+        //   clause_assuming_v_true = t1 ∨ t2 ∨ t3 ... ∨ v
+        //   clause_assuming_v_false = f1 ∨ f2 ∨ f3 ... ∨ v
+        // we know, that !t1 ∨ !t2 ∨ ... ∨ !f1 ∨ !f2 ∨ ... == true
+        // to resolve the conflict for v
+        let mut derived_clause_literals = Vec::with_capacity(
+            clause_assuming_v_true.literals().len() 
+            + clause_assuming_v_false.literals().len()
+            - 2 /* removal of conflicting variable in each clause */);
+        for clause in [clause_assuming_v_true, clause_assuming_v_false] {
+            for literal in clause.literals() {
+                if literal.variable() != v {
+                    let inverted = literal.invert();
+                    if !derived_clause_literals.contains(&inverted) {
+                        debug_assert!(!derived_clause_literals.contains(literal));
+                        derived_clause_literals.push(inverted);
+                    }
+                }
+            }
+        }
+        Self::new(&derived_clause_literals)
+    }
+
+    fn literals<'s>(&'s self) -> impl ExactSizeIterator<Item = &'s Literal<V>>
     where
         V: 's;
 
@@ -196,6 +232,34 @@ mod tests {
             clause.evaluate(&HashMap::from([('d', false)])),
             SatStatus::Unknown
         );
+    }
+
+    #[test]
+    fn clause_from_conflict() {
+        //two clauses, with conflict in variable 'v'
+        let clause1 = simple_impl::Clause::new(
+            &[Literal::Plain('a'), Literal::Plain('v')]);
+        let clause2 = simple_impl::Clause::new(
+            &[Literal::Negated('b'), Literal::Negated('v')]);
+        let expected = simple_impl::Clause::new(
+            &[Literal::Negated('a'), Literal::Plain('b')]);
+        let result = Clause::from_conflict(
+            &'v', &clause1, &clause2);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn clause_from_conflict_and_overlap() {
+        //two clauses, with conflict in variable 'v' and both using 'a'
+        let clause1 = simple_impl::Clause::new(
+            &[Literal::Plain('a'), Literal::Plain('v')]);
+        let clause2 = simple_impl::Clause::new(
+            &[Literal::Plain('a'), Literal::Negated('b'), Literal::Negated('v')]);
+        let expected = simple_impl::Clause::new(
+            &[Literal::Negated('a'), Literal::Plain('b')]);
+        let result = Clause::from_conflict(
+            &'v', &clause1, &clause2);
+        assert_eq!(result, expected);
     }
 
     #[test]
