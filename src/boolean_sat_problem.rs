@@ -31,6 +31,18 @@ where
     where
         C: 's;
 
+    fn add_clause(&mut self, clause: C);
+
+    ///add multiple clauses
+    ///
+    ///where applicable overwrite this in trait implementations for efficiency,
+    ///e.g. to pre-allocate memory
+    fn add_clauses(&mut self, clauses: impl IntoIterator<Item = C>) {
+        for clause in clauses {
+            self.add_clause(clause);
+        }
+    }
+
     fn evaluate(&self, known_values: &HashMap<V, bool>) -> SatStatus
     where
         V: Eq + std::hash::Hash,

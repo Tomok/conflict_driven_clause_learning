@@ -20,6 +20,17 @@ where
     {
         self.clauses.iter()
     }
+
+    fn add_clause(&mut self, clause: Clause<V>) {
+        self.clauses.push(clause);
+    }
+
+    fn add_clauses(&mut self, clauses: impl IntoIterator<Item = Clause<V>>) {
+        // this should be more efficient than the default implementation in the trait,
+        // as [Vec::extend] can check [Iter::size_hint] to resize before adding elements
+        // and as such avoid multiple reallocations
+        self.clauses.extend(clauses);
+    }
 }
 
 #[derive(Clone, Debug)]
