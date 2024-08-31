@@ -81,7 +81,7 @@ where
                     // it allows to derive more than one clause if a conflict is found,
                     // but it also requires heap allocations and increases the difficulty of
                     // backtracking
-                    let mut v = derived_values
+                    let v = derived_values
                         .entry(lit.variable().clone())
                         .or_insert((vec![], vec![]));
                     if lit.is_plain() {
