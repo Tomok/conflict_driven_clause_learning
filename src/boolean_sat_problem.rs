@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 
 pub mod simple_impl;
 
@@ -129,6 +130,49 @@ where
                 .collect(),
         )
     }
+
+    fn fmt_unicode(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
+    where
+        V: Display,
+    {
+        let mut any_element_written = false;
+        for clause in self.clauses() {
+            if any_element_written {
+                write!(f, " ∧ ")?;
+            } else {
+                any_element_written = true;
+            }
+            f.write_str("(")?;
+            clause.fmt_unicode(f)?;
+            f.write_str(")")?;
+        }
+        if !any_element_written {
+            write!(f, "()")?;
+        }
+        Ok(())
+    }
+
+    fn fmt_unicode_multiline(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
+    where
+        V: Display,
+    {
+        let mut any_element_written = false;
+        for clause in self.clauses() {
+            if any_element_written {
+                write!(f, " ∧ ")?;
+            } else {
+                write!(f, "  ")?; //to achive same indentation
+                any_element_written = true;
+            }
+            f.write_str("(")?;
+            clause.fmt_unicode(f)?;
+            f.write_str(")")?;
+        }
+        if !any_element_written {
+            write!(f, "()")?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,6 +272,30 @@ where
             UnitClauseCheckResult::Sat
         }
     }
+
+    /// pretty prints the clause using the given formatter
+    ///
+    /// can also be called in implementations to implement the [Display] trait
+    // (a general implementation of the [Display] trait for [Clause]s is prevented by Rusts orphan
+    // rules)
+    fn fmt_unicode(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
+    where
+        V: Display,
+    {
+        let mut any_element_written = false;
+        for literal in self.literals() {
+            if any_element_written {
+                write!(f, " ∨ ")?;
+            } else {
+                any_element_written = true;
+            }
+            literal.fmt(f)?;
+        }
+        if !any_element_written {
+            write!(f, "()")?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -268,6 +336,18 @@ impl<V> Literal<V> {
             Literal::Plain(v) => Literal::Negated((*v).clone()),
             Literal::Negated(v) => Literal::Plain((*v).clone()),
         }
+    }
+}
+
+impl<V> Display for Literal<V>
+where
+    V: Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_negated() {
+            write!(f, "¬")?;
+        }
+        self.variable().fmt(f)
     }
 }
 
@@ -499,5 +579,22 @@ mod tests {
             cnf.unit_clause_checks(&HashMap::from([('b', false)])),
             UnitClauseChecksResult::LiteralsDerived(vec![Literal::Plain('a')])
         );
+    }
+
+    #[test]
+    fn test_fmt_methods() {
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&[
+            simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]),
+            simple_impl::Clause::new(&[Literal::Negated('b')]),
+            simple_impl::Clause::new(&[Literal::Plain('c')]),
+            simple_impl::Clause::new(&[]),
+        ]);
+        assert_eq!("(a ∨ ¬b) ∧ (¬b) ∧ (c) ∧ (())", format!("{}", cnf));
+    }
+
+    #[test]
+    fn test_fmt_method_with_empty_cnf() {
+        let cnf = simple_impl::ConjunctiveNormalForm::<char>::new(&[]);
+        assert_eq!("()", format!("{}", cnf));
     }
 }
