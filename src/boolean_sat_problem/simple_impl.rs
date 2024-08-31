@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::Literal;
 
 pub struct ConjunctiveNormalForm<V> {
@@ -33,9 +35,27 @@ where
     }
 }
 
+impl<V> Display for ConjunctiveNormalForm<V>
+where
+    V: Eq + Clone + std::hash::Hash + Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        super::ConjunctiveNormalForm::fmt_unicode(self, f)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Clause<V> {
     literals: Vec<Literal<V>>,
+}
+
+impl<V> Display for Clause<V>
+where
+    V: Eq + Clone + std::hash::Hash + Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        super::Clause::fmt_unicode(self, f)
+    }
 }
 
 impl<V> PartialEq for Clause<V>
