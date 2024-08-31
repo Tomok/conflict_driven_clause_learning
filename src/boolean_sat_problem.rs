@@ -580,4 +580,21 @@ mod tests {
             UnitClauseChecksResult::LiteralsDerived(vec![Literal::Plain('a')])
         );
     }
+
+    #[test]
+    fn test_fmt_methods() {
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&[
+            simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]),
+            simple_impl::Clause::new(&[Literal::Negated('b')]),
+            simple_impl::Clause::new(&[Literal::Plain('c')]),
+            simple_impl::Clause::new(&[]),
+        ]);
+        assert_eq!("(a ∨ ¬b) ∧ (¬b) ∧ (c) ∧ (())", format!("{}", cnf));
+    }
+
+    #[test]
+    fn test_fmt_method_with_empty_cnf() {
+        let cnf = simple_impl::ConjunctiveNormalForm::<char>::new(&[]);
+        assert_eq!("()", format!("{}", cnf));
+    }
 }
