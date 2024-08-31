@@ -167,11 +167,9 @@ where
         );
         for clause in [clause_assuming_v_true, clause_assuming_v_false] {
             for literal in clause.literals() {
-                if literal.variable() != v {
-                    if !derived_clause_literals.contains(literal) {
-                        debug_assert!(!derived_clause_literals.contains(literal));
-                        derived_clause_literals.push((*literal).clone());
-                    }
+                if literal.variable() != v && !derived_clause_literals.contains(literal) {
+                    debug_assert!(!derived_clause_literals.contains(literal));
+                    derived_clause_literals.push((*literal).clone());
                 }
             }
         }
