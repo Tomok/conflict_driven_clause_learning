@@ -8,7 +8,7 @@ pub struct ConjunctiveNormalForm<V> {
 
 impl<V> super::ConjunctiveNormalForm<V, Clause<V>> for ConjunctiveNormalForm<V>
 where
-    V: Eq + Clone + std::hash::Hash,
+    V: Clone,
 {
     fn new(clauses: &[Clause<V>]) -> Self {
         Self {
@@ -51,7 +51,7 @@ pub struct Clause<V> {
 
 impl<V> Display for Clause<V>
 where
-    V: Eq + Clone + std::hash::Hash + Display,
+    V: Display + Clone,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         super::Clause::fmt_unicode(self, f)
@@ -79,7 +79,7 @@ impl<V> Eq for Clause<V> where V: PartialEq + Eq {}
 
 impl<V> super::Clause<V> for Clause<V>
 where
-    V: PartialEq + Eq + Clone + std::hash::Hash,
+    V: Clone,
 {
     fn new(literals: &[Literal<V>]) -> Self {
         Self {
@@ -87,7 +87,7 @@ where
         }
     }
 
-    fn literals<'s>(&'s self) -> impl ExactSizeIterator<Item = &'s Literal<V>>
+    fn literals<'s>(&'s self) -> impl Iterator<Item = &'s Literal<V>>
     where
         V: 's,
     {
