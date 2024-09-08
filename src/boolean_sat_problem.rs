@@ -10,7 +10,7 @@ pub enum SatStatus {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub enum UnitClauseChecksResult<V, C>
 where
     V: PartialEq + std::hash::Hash + Eq + Clone,
@@ -19,6 +19,26 @@ where
     /// a conflict was detected, contains the learned resulting clause
     Conflict(Vec<C>),
     LiteralsDerived(Vec<Literal<V>>),
+}
+
+fn elements_equal_order_independent<T: PartialEq>(a: &[T], b: &[T]) -> bool {
+    a.len() == b.len() && a.iter().all(|x| b.contains(x))
+}
+
+impl<V, C> PartialEq for UnitClauseChecksResult<V, C>
+where
+    V: PartialEq + std::hash::Hash + Eq + Clone,
+    C: Clause<V> + PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Conflict(l0), Self::Conflict(r0)) => elements_equal_order_independent(l0, r0),
+            (Self::LiteralsDerived(l0), Self::LiteralsDerived(r0)) => {
+                elements_equal_order_independent(l0, r0)
+            }
+            _ => false,
+        }
+    }
 }
 
 /// an AND combined list of [Clause]s
