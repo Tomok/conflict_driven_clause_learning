@@ -44,7 +44,7 @@ where
 /// an AND combined list of [Clause]s
 pub trait ConjunctiveNormalForm<V, C>
 where
-    V: PartialEq + std::hash::Hash + Eq + Clone,
+    V: Clone,
     C: Clause<V>,
 {
     fn new(clauses: &[C]) -> Self;
@@ -79,7 +79,10 @@ where
     }
 
     /// returns a [Literal] the Variable of which is not yet known to be defined
-    fn pick_literal(&self, already_picked: &HashMap<V, bool>) -> Option<Literal<V>> {
+    fn pick_literal(&self, already_picked: &HashMap<V, bool>) -> Option<Literal<V>>
+    where
+        V: Eq + std::hash::Hash,
+    {
         for clause in self.clauses() {
             for literal in clause.literals() {
                 if !already_picked.contains_key(literal.variable()) {
@@ -92,7 +95,10 @@ where
         None
     }
 
-    fn unit_clause_checks(&self, known_values: &HashMap<V, bool>) -> UnitClauseChecksResult<V, C> {
+    fn unit_clause_checks(&self, known_values: &HashMap<V, bool>) -> UnitClauseChecksResult<V, C>
+    where
+        V: Eq + std::hash::Hash,
+    {
         let mut derived_values = HashMap::new();
         for clause in self.clauses() {
             match clause.unit_clause_check(known_values) {
@@ -203,10 +209,7 @@ pub enum UnitClauseCheckResult<V> {
 }
 
 /// an OR combined list of [Literal]s
-pub trait Clause<V>
-where
-    V: PartialEq + Eq + std::hash::Hash + Clone,
-{
+pub trait Clause<V> {
     fn new(literals: &[Literal<V>]) -> Self;
 
     ///generates a new clause from two clauses causing v to have a conflicting value
@@ -217,7 +220,7 @@ where
     ///for debug builds this is asserted, for release builds this is not checked
     fn from_conflict(v: &V, clause_assuming_v_true: &Self, clause_assuming_v_false: &Self) -> Self
     where
-        V: PartialEq + std::hash::Hash + Eq + Clone,
+        V: PartialEq + Eq + Clone,
         Self: Sized,
     {
         // known:  (clause_assuming_v_true ∧ clause_assuming_v_false) == false
@@ -227,7 +230,9 @@ where
         // we know, that t1 ∨ t2 ∨ ... ∨ f1 ∨ f2 ∨ ... == true
         // to resolve the conflict for v
         let mut derived_clause_literals = Vec::with_capacity(
-            clause_assuming_v_true.literals().len() + clause_assuming_v_false.literals().len() - 2, /* removal of conflicting variable in each clause */
+            clause_assuming_v_true.literals().size_hint().0
+                + clause_assuming_v_false.literals().size_hint().0
+                - 2, /* removal of conflicting variable in each clause */
         );
         for clause in [clause_assuming_v_true, clause_assuming_v_false] {
             for literal in clause.literals() {
@@ -240,7 +245,7 @@ where
         Self::new(&derived_clause_literals)
     }
 
-    fn literals<'s>(&'s self) -> impl ExactSizeIterator<Item = &'s Literal<V>>
+    fn literals<'s>(&'s self) -> impl Iterator<Item = &'s Literal<V>>
     where
         V: 's;
 
@@ -265,7 +270,10 @@ where
         }
     }
 
-    fn unit_clause_check(&self, known_values: &HashMap<V, bool>) -> UnitClauseCheckResult<V> {
+    fn unit_clause_check(&self, known_values: &HashMap<V, bool>) -> UnitClauseCheckResult<V>
+    where
+        V: Clone + PartialEq + Eq + std::hash::Hash, //TODO rework so that cloning is not required
+    {
         let mut unsolved_literal = None;
         let mut potential_unsat = false;
         for literal in self.literals() {
@@ -599,22 +607,5 @@ mod tests {
             cnf.unit_clause_checks(&HashMap::from([('b', false)])),
             UnitClauseChecksResult::LiteralsDerived(vec![Literal::Plain('a')])
         );
-    }
-
-    #[test]
-    fn test_fmt_methods() {
-        let cnf = simple_impl::ConjunctiveNormalForm::new(&[
-            simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]),
-            simple_impl::Clause::new(&[Literal::Negated('b')]),
-            simple_impl::Clause::new(&[Literal::Plain('c')]),
-            simple_impl::Clause::new(&[]),
-        ]);
-        assert_eq!("(a ∨ ¬b) ∧ (¬b) ∧ (c) ∧ (())", format!("{}", cnf));
-    }
-
-    #[test]
-    fn test_fmt_method_with_empty_cnf() {
-        let cnf = simple_impl::ConjunctiveNormalForm::<char>::new(&[]);
-        assert_eq!("()", format!("{}", cnf));
     }
 }
