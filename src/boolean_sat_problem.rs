@@ -256,22 +256,13 @@ pub trait Clause<V> {
 
     fn evaluate(&self, known_values: &HashMap<V, bool>) -> SatStatus
     where
-        V: Eq + std::hash::Hash,
+        V: Clone + PartialEq + Eq + std::hash::Hash,
     {
-        let mut all_literals_found = true;
-        for literal in self.literals() {
-            if let Some(expected) = known_values.get(literal.variable()) {
-                if *expected == literal.is_plain() {
-                    return SatStatus::Sat;
-                }
-            } else {
-                all_literals_found = false;
-            }
-        }
-        if all_literals_found {
-            SatStatus::Unsat
-        } else {
-            SatStatus::Unknown
+        match self.unit_clause_check(known_values) {
+            UnitClauseCheckResult::Sat => SatStatus::Sat,
+            UnitClauseCheckResult::Unknown => SatStatus::Unknown,
+            UnitClauseCheckResult::PropagatedUnit(_) => SatStatus::Unknown,
+            UnitClauseCheckResult::Unsat => SatStatus::Unsat,
         }
     }
 
