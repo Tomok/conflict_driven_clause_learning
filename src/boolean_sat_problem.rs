@@ -106,7 +106,9 @@ where
         for clause in self.clauses() {
             match clause.unit_clause_check(known_values) {
                 UnitClauseCheckResult::Sat | UnitClauseCheckResult::Unknown => {}
-                UnitClauseCheckResult::Unsat => return UnitClauseChecksResult::Unsat,
+                UnitClauseCheckResult::Unsat => {
+                    return UnitClauseChecksResult::Unsat;
+                }
                 UnitClauseCheckResult::PropagatedUnit(lit) => {
                     //TODO: should multiple clauses causing a variable state be saved?
                     // it allows to derive more than one clause if a conflict is found,
@@ -133,7 +135,10 @@ where
                                     clause_assuming_v_true,
                                     clause_assuming_v_false,
                                 );
-                                learned_clauses.push(learned_clause);
+                                // only push learned_clauses that are not empty
+                                if learned_clauses.first().is_some() {
+                                    learned_clauses.push(learned_clause);
+                                }
                             }
                         }
                         return UnitClauseChecksResult::Conflict(learned_clauses);
@@ -521,6 +526,10 @@ mod tests {
             SatStatus::Unknown
         );
         assert_eq!(
+            cnf.evaluate(&HashMap::from([('a', false)])),
+            SatStatus::Unsat
+        );
+        assert_eq!(
             cnf.evaluate(&HashMap::from([('b', false)])),
             SatStatus::Unknown
         );
@@ -585,6 +594,25 @@ mod tests {
             UnitClauseChecksResult::LiteralsDerived(vec![Literal::Negated('b')])
         );
     }
+    #[test]
+    fn cnf_unit_clause_checks_a_and_not_a() {
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&[
+            simple_impl::Clause::new(&[Literal::Plain('a')]),
+            simple_impl::Clause::new(&[Literal::Negated('a')]),
+        ]);
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::new()),
+            UnitClauseChecksResult::Conflict(vec![])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('a', false)])),
+            UnitClauseChecksResult::Unsat
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('a', true)])),
+            UnitClauseChecksResult::Unsat
+        );
+    }
 
     #[test]
     fn cnf_unit_clause_checks_with_conflict() {
@@ -598,10 +626,18 @@ mod tests {
         );
         assert_eq!(
             cnf.unit_clause_checks(&HashMap::from([('a', false)])),
-            UnitClauseChecksResult::Conflict(vec![Clause::new(&[Literal::Plain('a')])])
+            UnitClauseChecksResult::Conflict(vec![])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('a', true)])),
+            UnitClauseChecksResult::LiteralsDerived(vec![])
         );
         assert_eq!(
             cnf.unit_clause_checks(&HashMap::from([('b', false)])),
+            UnitClauseChecksResult::LiteralsDerived(vec![Literal::Plain('a')])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('b', true)])),
             UnitClauseChecksResult::LiteralsDerived(vec![Literal::Plain('a')])
         );
     }
