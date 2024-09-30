@@ -19,6 +19,8 @@ where
     /// a conflict was detected, contains the learned resulting clause
     Conflict(Vec<C>),
     LiteralsDerived(Vec<Literal<V>>),
+    /// it is known, that no matter the other variables set, this will never be SAT
+    Unsat,
 }
 
 fn elements_equal_order_independent<T: PartialEq>(a: &[T], b: &[T]) -> bool {
@@ -36,6 +38,7 @@ where
             (Self::LiteralsDerived(l0), Self::LiteralsDerived(r0)) => {
                 elements_equal_order_independent(l0, r0)
             }
+            (Self::Unsat, Self::Unsat) => true,
             _ => false,
         }
     }
@@ -103,6 +106,7 @@ where
         for clause in self.clauses() {
             match clause.unit_clause_check(known_values) {
                 UnitClauseCheckResult::Sat | UnitClauseCheckResult::Unknown => {}
+                UnitClauseCheckResult::Unsat => return UnitClauseChecksResult::Unsat,
                 UnitClauseCheckResult::PropagatedUnit(lit) => {
                     //TODO: should multiple clauses causing a variable state be saved?
                     // it allows to derive more than one clause if a conflict is found,
@@ -206,6 +210,7 @@ pub enum UnitClauseCheckResult<V> {
     Sat,
     Unknown,
     PropagatedUnit(Literal<V>),
+    Unsat,
 }
 
 /// an OR combined list of [Literal]s
@@ -251,22 +256,13 @@ pub trait Clause<V> {
 
     fn evaluate(&self, known_values: &HashMap<V, bool>) -> SatStatus
     where
-        V: Eq + std::hash::Hash,
+        V: Clone + PartialEq + Eq + std::hash::Hash,
     {
-        let mut all_literals_found = true;
-        for literal in self.literals() {
-            if let Some(expected) = known_values.get(literal.variable()) {
-                if *expected == literal.is_plain() {
-                    return SatStatus::Sat;
-                }
-            } else {
-                all_literals_found = false;
-            }
-        }
-        if all_literals_found {
-            SatStatus::Unsat
-        } else {
-            SatStatus::Unknown
+        match self.unit_clause_check(known_values) {
+            UnitClauseCheckResult::Sat => SatStatus::Sat,
+            UnitClauseCheckResult::Unknown => SatStatus::Unknown,
+            UnitClauseCheckResult::PropagatedUnit(_) => SatStatus::Unknown,
+            UnitClauseCheckResult::Unsat => SatStatus::Unsat,
         }
     }
 
@@ -275,14 +271,16 @@ pub trait Clause<V> {
         V: Clone + PartialEq + Eq + std::hash::Hash, //TODO rework so that cloning is not required
     {
         let mut unsolved_literal = None;
-        let mut potential_unsat = false;
+        let mut unknown = false;
+        let mut any_literal_found = false;
         for literal in self.literals() {
+            any_literal_found = true;
             match known_values.get(literal.variable()) {
                 None => {
                     if unsolved_literal.is_none() {
                         unsolved_literal = Some(literal);
                     } else {
-                        potential_unsat = true;
+                        unknown = true;
                     }
                 }
                 Some(expected) => {
@@ -292,12 +290,11 @@ pub trait Clause<V> {
                 }
             }
         }
-        if potential_unsat {
-            UnitClauseCheckResult::Unknown
-        } else if let Some(lit) = unsolved_literal {
-            UnitClauseCheckResult::PropagatedUnit((*lit).clone())
-        } else {
-            UnitClauseCheckResult::Sat
+        match (unknown, unsolved_literal, any_literal_found) {
+            (true, _, _) => UnitClauseCheckResult::Unknown,
+            (false, Some(lit), _) => UnitClauseCheckResult::PropagatedUnit((*lit).clone()),
+            (false, None, true) => UnitClauseCheckResult::Unsat,
+            (false, None, false) => UnitClauseCheckResult::Sat,
         }
     }
 
