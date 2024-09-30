@@ -67,6 +67,57 @@ where
         }
     }
 
+    fn check_sat(&mut self) -> SatStatus
+    where
+        V: PartialEq + Eq + std::hash::Hash,
+    {
+        let known_values = HashMap::new();
+        self._pick_literal_and_check(&known_values)
+    }
+
+    /// picks a literal and checks the resulting sat status, if necessary for
+    /// both the picked literal and its negation
+    fn _pick_literal_and_check(&mut self, known_values: &HashMap<V, bool>) -> SatStatus
+    where
+        V: PartialEq + Eq + std::hash::Hash,
+    {
+        let literal = self.pick_literal(known_values);
+        let Some(literal) = literal else {
+            return SatStatus::Sat;
+        };
+        let mut new_known_values = known_values.clone();
+        new_known_values.insert(literal.variable().clone(), literal.is_plain());
+        match self._check_sat(&mut new_known_values) {
+            SatStatus::Unsat => {
+                // invert chosen literal
+                let previous_literal =
+                    new_known_values.insert(literal.variable().clone(), !literal.is_plain());
+                debug_assert!(previous_literal.is_some());
+                self._check_sat(&mut new_known_values)
+            }
+            sat_status => sat_status,
+        }
+    }
+
+    fn _check_sat(&mut self, known_values: &mut HashMap<V, bool>) -> SatStatus
+    where
+        V: PartialEq + Eq + std::hash::Hash,
+    {
+        match self.unit_clause_checks(known_values) {
+            UnitClauseChecksResult::Conflict(c) => {
+                self.add_clauses(c);
+                SatStatus::Unsat
+            }
+            UnitClauseChecksResult::LiteralsDerived(ld) => {
+                for literal in ld {
+                    known_values.insert(literal.variable().clone(), literal.is_plain());
+                }
+                self._pick_literal_and_check(known_values)
+            }
+            UnitClauseChecksResult::Unsat => SatStatus::Unsat,
+        }
+    }
+
     fn evaluate(&self, known_values: &HashMap<V, bool>) -> SatStatus
     where
         V: Eq + std::hash::Hash,
@@ -640,5 +691,48 @@ mod tests {
             cnf.unit_clause_checks(&HashMap::from([('b', true)])),
             UnitClauseChecksResult::LiteralsDerived(vec![Literal::Plain('a')])
         );
+    }
+
+    #[test]
+    fn cnf_check_sat_a() {
+        let clauses = [simple_impl::Clause::new(&[Literal::Plain('a')])];
+        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        assert_eq!(cnf.check_sat(), SatStatus::Sat);
+        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        assert_eq!(clauses_after_check.len(), 1);
+        assert_eq!(clauses_after_check[0], &clauses[0]);
+    }
+
+    #[test]
+    fn cnf_check_sat_empty() {
+        let clauses: [simple_impl::Clause<char>; 0] = [];
+        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        assert_eq!(cnf.check_sat(), SatStatus::Sat);
+        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        assert_eq!(clauses_after_check.len(), 0);
+    }
+
+    #[test]
+    fn cnf_check_sat_not_a() {
+        let clauses = [simple_impl::Clause::new(&[Literal::Negated('a')])];
+        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        assert_eq!(cnf.check_sat(), SatStatus::Sat);
+        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        assert_eq!(clauses_after_check.len(), 1);
+        assert_eq!(clauses_after_check[0], &clauses[0]);
+    }
+
+    #[test]
+    fn cnf_check_sat_a_and_not_a() {
+        let clauses = [
+            simple_impl::Clause::new(&[Literal::Plain('a')]),
+            simple_impl::Clause::new(&[Literal::Negated('a')]),
+        ];
+        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        assert_eq!(cnf.check_sat(), SatStatus::Unsat);
+        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        assert_eq!(clauses_after_check.len(), 2);
+        assert_eq!(clauses_after_check[0], &clauses[0]);
+        assert_eq!(clauses_after_check[1], &clauses[1]);
     }
 }
