@@ -292,12 +292,10 @@ pub trait Clause<V> {
                 }
             }
         }
-        if potential_unsat {
-            UnitClauseCheckResult::Unknown
-        } else if let Some(lit) = unsolved_literal {
-            UnitClauseCheckResult::PropagatedUnit((*lit).clone())
-        } else {
-            UnitClauseCheckResult::Sat
+        match (potential_unsat, unsolved_literal) {
+            (true, _) => UnitClauseCheckResult::Unknown,
+            (false, Some(lit)) => UnitClauseCheckResult::PropagatedUnit((*lit).clone()),
+            (false, None) => UnitClauseCheckResult::Sat,
         }
     }
 
