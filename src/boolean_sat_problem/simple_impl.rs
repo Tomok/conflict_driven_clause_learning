@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, hash::Hash};
 
 use super::Literal;
 
@@ -72,6 +72,19 @@ where
             }
         }
         true
+    }
+}
+
+impl<V> Hash for Clause<V>
+where
+    V: Hash + PartialOrd + Ord,
+{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // sort the literals before hashing to avoid the order being relevant
+        // there might be better way to do this
+        let mut literals = self.literals.iter().collect::<Vec<_>>();
+        literals.sort();
+        literals.hash(state);
     }
 }
 

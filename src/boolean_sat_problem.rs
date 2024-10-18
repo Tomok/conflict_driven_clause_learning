@@ -379,7 +379,7 @@ pub trait Clause<V> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum Literal<V> {
     /// the value of the variable itself
     Plain(V),
