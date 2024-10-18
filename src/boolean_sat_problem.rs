@@ -434,9 +434,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use super::*;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn clause_evaluate() {
@@ -470,6 +469,10 @@ mod tests {
         assert_eq!(
             clause.evaluate(&HashMap::from([('c', false)])),
             SatStatus::Sat
+        );
+        assert_eq!(
+            clause.evaluate(&HashMap::from([('a', false), ('b', true)])),
+            SatStatus::Unknown
         );
         assert_eq!(
             clause.evaluate(&HashMap::from([('a', false), ('b', false), ('c', false)])),
@@ -666,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn cnf_unit_clause_checks_with_conflict() {
+    fn cnf_unit_clause_checks_with_simple_conflict() {
         let cnf = simple_impl::ConjunctiveNormalForm::new(&[
             simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Plain('b')]),
             simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]),
@@ -677,7 +680,7 @@ mod tests {
         );
         assert_eq!(
             cnf.unit_clause_checks(&HashMap::from([('a', false)])),
-            UnitClauseChecksResult::Conflict(vec![])
+            UnitClauseChecksResult::Conflict(vec![Clause::new(&[Literal::Plain('a')])])
         );
         assert_eq!(
             cnf.unit_clause_checks(&HashMap::from([('a', true)])),
