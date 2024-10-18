@@ -551,6 +551,84 @@ mod tests {
     }
 
     #[test]
+    fn clause_unit_clause_check_a_or_b_or_not_c() {
+        let clause = simple_impl::Clause::new(&[
+            Literal::Plain('a'),
+            Literal::Plain('b'),
+            Literal::Negated('c'),
+        ]);
+
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::new()),
+            UnitClauseCheckResult::Unknown
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', true)])),
+            UnitClauseCheckResult::Sat
+        );
+
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', false)])),
+            UnitClauseCheckResult::Unknown
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', false), ('b', false)])),
+            UnitClauseCheckResult::PropagatedUnit(Literal::Negated('c'))
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', false), ('b', true)])),
+            UnitClauseCheckResult::Sat
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('c', true)])),
+            UnitClauseCheckResult::Unknown
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('c', false)])),
+            UnitClauseCheckResult::Sat
+        );
+    }
+
+    #[test]
+    fn clause_unit_clause_check_a_or_b_or_c() {
+        let clause = simple_impl::Clause::new(&[
+            Literal::Plain('a'),
+            Literal::Plain('b'),
+            Literal::Plain('c'),
+        ]);
+
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::new()),
+            UnitClauseCheckResult::Unknown
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', true)])),
+            UnitClauseCheckResult::Sat
+        );
+
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', false)])),
+            UnitClauseCheckResult::Unknown
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', false), ('b', false)])),
+            UnitClauseCheckResult::PropagatedUnit(Literal::Plain('c'))
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('a', false), ('b', true)])),
+            UnitClauseCheckResult::Sat
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('c', true)])),
+            UnitClauseCheckResult::Sat
+        );
+        assert_eq!(
+            clause.unit_clause_check(&HashMap::from([('c', false)])),
+            UnitClauseCheckResult::Unknown
+        );
+    }
+
+    #[test]
     fn empty_clause_unit_clause_check() {
         let clause = simple_impl::Clause::new(&[]);
         assert_eq!(
@@ -697,6 +775,54 @@ mod tests {
     }
 
     #[test]
+    fn cnf_unit_clause_checks_with_conflict() {
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&[
+            simple_impl::Clause::new(&[
+                Literal::Plain('a'),
+                Literal::Plain('b'),
+                Literal::Plain('c'),
+            ]),
+            simple_impl::Clause::new(&[
+                Literal::Plain('a'),
+                Literal::Plain('b'),
+                Literal::Negated('c'),
+            ]),
+        ]);
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::new()),
+            UnitClauseChecksResult::LiteralsDerived(vec![])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('a', false)])),
+            UnitClauseChecksResult::LiteralsDerived(vec![])
+        );
+        let known_values = HashMap::from([('a', false), ('b', false)]);
+        assert_eq!(
+            cnf.unit_clause_checks(&known_values),
+            UnitClauseChecksResult::Conflict(vec![simple_impl::Clause::new(&[
+                Literal::Plain('a'),
+                Literal::Plain('b')
+            ]),])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('a', false), ('c', true)])),
+            UnitClauseChecksResult::LiteralsDerived(vec![Literal::Plain('b')])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('a', true)])),
+            UnitClauseChecksResult::LiteralsDerived(vec![])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('b', false)])),
+            UnitClauseChecksResult::LiteralsDerived(vec![])
+        );
+        assert_eq!(
+            cnf.unit_clause_checks(&HashMap::from([('b', true)])),
+            UnitClauseChecksResult::LiteralsDerived(vec![])
+        );
+    }
+
+    #[test]
     fn cnf_check_sat_a() {
         let clauses = [simple_impl::Clause::new(&[Literal::Plain('a')])];
         let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
@@ -737,5 +863,134 @@ mod tests {
         assert_eq!(clauses_after_check.len(), 2);
         assert_eq!(clauses_after_check[0], &clauses[0]);
         assert_eq!(clauses_after_check[1], &clauses[1]);
+    }
+
+    #[test]
+    fn cnf_check_sat_a_and_not_a_and_b() {
+        let clauses = [
+            simple_impl::Clause::new(&[Literal::Plain('a')]),
+            simple_impl::Clause::new(&[Literal::Negated('a')]),
+            simple_impl::Clause::new(&[Literal::Plain('b')]),
+        ];
+        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        assert_eq!(cnf.check_sat(), SatStatus::Unsat);
+        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        assert_eq!(clauses_after_check.len(), 3);
+        assert_eq!(clauses_after_check[0], &clauses[0]);
+        assert_eq!(clauses_after_check[1], &clauses[1]);
+        assert_eq!(clauses_after_check[2], &clauses[2]);
+    }
+
+    #[test]
+    fn cnf_check_sat_a_or_b_and_not_a_or_b() {
+        let clauses = [
+            simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Plain('b')]),
+            simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Plain('b')]),
+        ];
+        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        assert_eq!(cnf.check_sat(), SatStatus::Sat);
+        let clauses_after_check = cnf.clauses().collect::<HashSet<_>>();
+        for c in clauses {
+            assert!(
+                &clauses_after_check.contains(&c),
+                "Clauses after check did not contain original clause {:#?}: {:#?}",
+                &c,
+                &clauses_after_check
+            );
+        }
+        if clauses_after_check.len() > 2 {
+            unimplemented!("cnf_check_sat_a_or_b_and_not_a_or_b() learned something, possible learinings should be checked here...");
+        }
+    }
+
+    #[test]
+    fn cnf_check_sat_a_or_b_and_a_or_not_b() {
+        let clauses = [
+            simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Plain('b')]),
+            simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]),
+        ];
+        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        assert_eq!(cnf.check_sat(), SatStatus::Sat);
+        let clauses_after_check = cnf.clauses().collect::<HashSet<_>>();
+        for c in &clauses {
+            assert!(
+                &clauses_after_check.contains(&c),
+                "Clauses after check did not contain original clause {:#?}: {:#?}",
+                &c,
+                &clauses_after_check
+            );
+        }
+        if clauses_after_check.len() > 2 {
+            let learned_clauses = &clauses_after_check
+                .iter()
+                .filter(|c| !clauses.contains(c))
+                .copied()
+                .collect::<Vec<_>>();
+            let potential_learned_clauses = [simple_impl::Clause::new(&[Literal::Plain('a')])];
+            let unexpected_learned_clauses = learned_clauses
+                .iter()
+                .filter(|c| !potential_learned_clauses.contains(c))
+                .copied()
+                .collect::<Vec<_>>();
+            let empty_clause_vec: Vec<&simple_impl::Clause<char>> = Vec::new();
+            assert_eq!(unexpected_learned_clauses, empty_clause_vec);
+        }
+    }
+
+    #[test]
+    fn cnf_check_sat_not_a_or_b_and_not_a_or_not_b() {
+        let clauses = [
+            simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Plain('b')]),
+            simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Negated('b')]),
+        ];
+        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        assert_eq!(cnf.check_sat(), SatStatus::Sat);
+        let clauses_after_check = cnf.clauses().collect::<HashSet<_>>();
+        for c in &clauses {
+            assert!(
+                &clauses_after_check.contains(&c),
+                "Clauses after check did not contain original clause {:#?}: {:#?}",
+                &c,
+                &clauses_after_check
+            );
+        }
+        if clauses_after_check.len() > 2 {
+            let learned_clauses = &clauses_after_check
+                .iter()
+                .filter(|c| !clauses.contains(c))
+                .copied()
+                .collect::<Vec<_>>();
+
+            let potential_learned_clauses = [simple_impl::Clause::new(&[Literal::Negated('a')])];
+            let unexpected_learned_clauses = learned_clauses
+                .iter()
+                .filter(|c| !potential_learned_clauses.contains(c))
+                .copied()
+                .collect::<Vec<_>>();
+            let empty_clause_vec: Vec<&simple_impl::Clause<char>> = Vec::new();
+            assert_eq!(unexpected_learned_clauses, empty_clause_vec);
+        }
+    }
+
+    #[test]
+    fn cnf_check_sat_a_or_not_b_and_not_a_or_not_b() {
+        let clauses = [
+            simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]),
+            simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Negated('b')]),
+        ];
+        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        assert_eq!(cnf.check_sat(), SatStatus::Sat);
+        let clauses_after_check = cnf.clauses().collect::<HashSet<_>>();
+        for c in clauses {
+            assert!(
+                &clauses_after_check.contains(&c),
+                "Clauses after check did not contain original clause {:#?}: {:#?}",
+                &c,
+                &clauses_after_check
+            );
+        }
+        if clauses_after_check.len() > 2 {
+            unimplemented!("cnf_check_sat_not_a_or_b_and_not_a_or_not_b() learned something, possible learinings should be checked here...");
+        }
     }
 }
