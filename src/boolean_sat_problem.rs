@@ -187,7 +187,7 @@ where
                                     clause_assuming_v_false,
                                 );
                                 // only push learned_clauses that are not empty
-                                if learned_clauses.first().is_some() {
+                                if learned_clause.literals().next().is_some() {
                                     learned_clauses.push(learned_clause);
                                 }
                             }
