@@ -10,6 +10,113 @@ pub enum SatStatus {
     Unknown,
 }
 
+pub struct Solver<CNF>
+where
+    CNF: Sized,
+{
+    cnf: CNF,
+}
+
+impl<CNF> Solver<CNF>
+where
+    CNF: Sized,
+{
+    pub fn new<V, C>(cnf: CNF) -> Self
+    where
+        V: Clone,
+        C: Clause<V>,
+        CNF: ConjunctiveNormalForm<V, C>,
+    {
+        Self { cnf }
+    }
+
+    /// returns all clauses, the initial ones as well as any learned clauses
+    pub fn clauses<'s, V, C>(&'s self) -> impl Iterator<Item = &'s C>
+    where
+        V: Clone,
+        C: Clause<V> + 's,
+        CNF: ConjunctiveNormalForm<V, C>,
+    {
+        self.cnf.clauses()
+    }
+
+    pub fn check_sat<'s, V, C>(&mut self) -> SatStatus
+    where
+        V: Clone + PartialEq + Eq + std::hash::Hash,
+        C: Clause<V> + 's,
+        CNF: ConjunctiveNormalForm<V, C>,
+    {
+        let known_values = HashMap::new();
+        self._pick_literal_and_check(&known_values)
+    }
+
+    /// picks a literal and checks the resulting sat status, if necessary for
+    /// both the picked literal and its negation
+    fn _pick_literal_and_check<'s, V, C>(&mut self, known_values: &HashMap<V, bool>) -> SatStatus
+    where
+        V: Clone + PartialEq + Eq + std::hash::Hash,
+        C: Clause<V> + 's,
+        CNF: ConjunctiveNormalForm<V, C>,
+    {
+        let literal = self.pick_literal(known_values);
+        let Some(literal) = literal else {
+            return SatStatus::Sat;
+        };
+        let mut new_known_values = known_values.clone();
+        new_known_values.insert(literal.variable().clone(), literal.is_plain());
+        match self._check_sat(&mut new_known_values) {
+            SatStatus::Unsat => {
+                // invert chosen literal
+                let previous_literal =
+                    new_known_values.insert(literal.variable().clone(), !literal.is_plain());
+                debug_assert!(previous_literal.is_some());
+                self._check_sat(&mut new_known_values)
+            }
+            sat_status => sat_status,
+        }
+    }
+
+    fn _check_sat<'s, V, C>(&mut self, known_values: &mut HashMap<V, bool>) -> SatStatus
+    where
+        V: Clone + PartialEq + Eq + std::hash::Hash,
+        C: Clause<V> + 's,
+        CNF: ConjunctiveNormalForm<V, C>,
+    {
+        match self.cnf.unit_clause_checks(known_values) {
+            UnitClauseChecksResult::Conflict(c) => {
+                self.cnf.add_clauses(c);
+                SatStatus::Unsat
+            }
+            UnitClauseChecksResult::LiteralsDerived(ld) => {
+                for literal in ld {
+                    known_values.insert(literal.variable().clone(), literal.is_plain());
+                }
+                self._pick_literal_and_check(known_values)
+            }
+            UnitClauseChecksResult::Unsat => SatStatus::Unsat,
+        }
+    }
+
+    /// returns a [Literal] the Variable of which is not yet known to be defined
+    fn pick_literal<'s, V, C>(&self, already_picked: &HashMap<V, bool>) -> Option<Literal<V>>
+    where
+        V: Clone + PartialEq + Eq + std::hash::Hash,
+        C: Clause<V> + 's,
+        CNF: ConjunctiveNormalForm<V, C>,
+    {
+        for clause in self.clauses() {
+            for literal in clause.literals() {
+                if !already_picked.contains_key(literal.variable()) {
+                    // intentionally inverting the found literal here, that way there is a chance
+                    // of the unit clause check deriving a value using this clause
+                    return Some(literal.invert());
+                }
+            }
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Eq)]
 pub enum UnitClauseChecksResult<V, C>
 where
@@ -67,57 +174,6 @@ where
         }
     }
 
-    fn check_sat(&mut self) -> SatStatus
-    where
-        V: PartialEq + Eq + std::hash::Hash,
-    {
-        let known_values = HashMap::new();
-        self._pick_literal_and_check(&known_values)
-    }
-
-    /// picks a literal and checks the resulting sat status, if necessary for
-    /// both the picked literal and its negation
-    fn _pick_literal_and_check(&mut self, known_values: &HashMap<V, bool>) -> SatStatus
-    where
-        V: PartialEq + Eq + std::hash::Hash,
-    {
-        let literal = self.pick_literal(known_values);
-        let Some(literal) = literal else {
-            return SatStatus::Sat;
-        };
-        let mut new_known_values = known_values.clone();
-        new_known_values.insert(literal.variable().clone(), literal.is_plain());
-        match self._check_sat(&mut new_known_values) {
-            SatStatus::Unsat => {
-                // invert chosen literal
-                let previous_literal =
-                    new_known_values.insert(literal.variable().clone(), !literal.is_plain());
-                debug_assert!(previous_literal.is_some());
-                self._check_sat(&mut new_known_values)
-            }
-            sat_status => sat_status,
-        }
-    }
-
-    fn _check_sat(&mut self, known_values: &mut HashMap<V, bool>) -> SatStatus
-    where
-        V: PartialEq + Eq + std::hash::Hash,
-    {
-        match self.unit_clause_checks(known_values) {
-            UnitClauseChecksResult::Conflict(c) => {
-                self.add_clauses(c);
-                SatStatus::Unsat
-            }
-            UnitClauseChecksResult::LiteralsDerived(ld) => {
-                for literal in ld {
-                    known_values.insert(literal.variable().clone(), literal.is_plain());
-                }
-                self._pick_literal_and_check(known_values)
-            }
-            UnitClauseChecksResult::Unsat => SatStatus::Unsat,
-        }
-    }
-
     fn evaluate(&self, known_values: &HashMap<V, bool>) -> SatStatus
     where
         V: Eq + std::hash::Hash,
@@ -130,23 +186,6 @@ where
             }
         }
         SatStatus::Sat
-    }
-
-    /// returns a [Literal] the Variable of which is not yet known to be defined
-    fn pick_literal(&self, already_picked: &HashMap<V, bool>) -> Option<Literal<V>>
-    where
-        V: Eq + std::hash::Hash,
-    {
-        for clause in self.clauses() {
-            for literal in clause.literals() {
-                if !already_picked.contains_key(literal.variable()) {
-                    // intentionally inverting the found literal here, that way there is a chance
-                    // of the unit clause check deriving a value using this clause
-                    return Some(literal.invert());
-                }
-            }
-        }
-        None
     }
 
     fn unit_clause_checks(&self, known_values: &HashMap<V, bool>) -> UnitClauseChecksResult<V, C>
@@ -680,17 +719,18 @@ mod tests {
     }
 
     #[test]
-    fn cnf_pick_literal() {
+    fn solver_pick_literal() {
         let cnf = simple_impl::ConjunctiveNormalForm::new(&[
             simple_impl::Clause::new(&[Literal::Plain('a')]),
             simple_impl::Clause::new(&[Literal::Negated('b'), Literal::Negated('c')]),
             simple_impl::Clause::new(&[Literal::Negated('c')]),
         ]);
+        let solver = Solver::new(cnf);
         let mut literals_picked = HashMap::new();
         let all_vars = HashSet::from(['a', 'b', 'c']);
 
         loop {
-            let literal = cnf.pick_literal(&literals_picked);
+            let literal = solver.pick_literal(&literals_picked);
             let literal = match literal {
                 None => break,
                 Some(v) => v,
@@ -823,11 +863,12 @@ mod tests {
     }
 
     #[test]
-    fn cnf_check_sat_a() {
+    fn solver_check_sat_a() {
         let clauses = [simple_impl::Clause::new(&[Literal::Plain('a')])];
-        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
-        assert_eq!(cnf.check_sat(), SatStatus::Sat);
-        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        let mut solver = Solver::new(cnf);
+        assert_eq!(solver.check_sat(), SatStatus::Sat);
+        let clauses_after_check = solver.clauses().collect::<Vec<_>>();
         assert_eq!(clauses_after_check.len(), 1);
         assert_eq!(clauses_after_check[0], &clauses[0]);
     }
@@ -835,18 +876,20 @@ mod tests {
     #[test]
     fn cnf_check_sat_empty() {
         let clauses: [simple_impl::Clause<char>; 0] = [];
-        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
-        assert_eq!(cnf.check_sat(), SatStatus::Sat);
-        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        let mut solver = Solver::new(cnf);
+        assert_eq!(solver.check_sat(), SatStatus::Sat);
+        let clauses_after_check = solver.clauses().collect::<Vec<_>>();
         assert_eq!(clauses_after_check.len(), 0);
     }
 
     #[test]
     fn cnf_check_sat_not_a() {
         let clauses = [simple_impl::Clause::new(&[Literal::Negated('a')])];
-        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
-        assert_eq!(cnf.check_sat(), SatStatus::Sat);
-        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        let mut solver = Solver::new(cnf);
+        assert_eq!(solver.check_sat(), SatStatus::Sat);
+        let clauses_after_check = solver.clauses().collect::<Vec<_>>();
         assert_eq!(clauses_after_check.len(), 1);
         assert_eq!(clauses_after_check[0], &clauses[0]);
     }
@@ -857,9 +900,10 @@ mod tests {
             simple_impl::Clause::new(&[Literal::Plain('a')]),
             simple_impl::Clause::new(&[Literal::Negated('a')]),
         ];
-        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
-        assert_eq!(cnf.check_sat(), SatStatus::Unsat);
-        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        let mut solver = Solver::new(cnf);
+        assert_eq!(solver.check_sat(), SatStatus::Unsat);
+        let clauses_after_check = solver.clauses().collect::<Vec<_>>();
         assert_eq!(clauses_after_check.len(), 2);
         assert_eq!(clauses_after_check[0], &clauses[0]);
         assert_eq!(clauses_after_check[1], &clauses[1]);
@@ -872,9 +916,10 @@ mod tests {
             simple_impl::Clause::new(&[Literal::Negated('a')]),
             simple_impl::Clause::new(&[Literal::Plain('b')]),
         ];
-        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
-        assert_eq!(cnf.check_sat(), SatStatus::Unsat);
-        let clauses_after_check = cnf.clauses().collect::<Vec<_>>();
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        let mut solver = Solver::new(cnf);
+        assert_eq!(solver.check_sat(), SatStatus::Unsat);
+        let clauses_after_check = solver.clauses().collect::<Vec<_>>();
         assert_eq!(clauses_after_check.len(), 3);
         assert_eq!(clauses_after_check[0], &clauses[0]);
         assert_eq!(clauses_after_check[1], &clauses[1]);
@@ -887,9 +932,10 @@ mod tests {
             simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Plain('b')]),
             simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Plain('b')]),
         ];
-        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
-        assert_eq!(cnf.check_sat(), SatStatus::Sat);
-        let clauses_after_check = cnf.clauses().collect::<HashSet<_>>();
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        let mut solver = Solver::new(cnf);
+        assert_eq!(solver.check_sat(), SatStatus::Sat);
+        let clauses_after_check = solver.clauses().collect::<HashSet<_>>();
         for c in clauses {
             assert!(
                 &clauses_after_check.contains(&c),
@@ -909,9 +955,10 @@ mod tests {
             simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Plain('b')]),
             simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]),
         ];
-        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
-        assert_eq!(cnf.check_sat(), SatStatus::Sat);
-        let clauses_after_check = cnf.clauses().collect::<HashSet<_>>();
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        let mut solver = Solver::new(cnf);
+        assert_eq!(solver.check_sat(), SatStatus::Sat);
+        let clauses_after_check = solver.clauses().collect::<HashSet<_>>();
         for c in &clauses {
             assert!(
                 &clauses_after_check.contains(&c),
@@ -943,9 +990,10 @@ mod tests {
             simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Plain('b')]),
             simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Negated('b')]),
         ];
-        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
-        assert_eq!(cnf.check_sat(), SatStatus::Sat);
-        let clauses_after_check = cnf.clauses().collect::<HashSet<_>>();
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        let mut solver = Solver::new(cnf);
+        assert_eq!(solver.check_sat(), SatStatus::Sat);
+        let clauses_after_check = solver.clauses().collect::<HashSet<_>>();
         for c in &clauses {
             assert!(
                 &clauses_after_check.contains(&c),
@@ -978,9 +1026,10 @@ mod tests {
             simple_impl::Clause::new(&[Literal::Plain('a'), Literal::Negated('b')]),
             simple_impl::Clause::new(&[Literal::Negated('a'), Literal::Negated('b')]),
         ];
-        let mut cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
-        assert_eq!(cnf.check_sat(), SatStatus::Sat);
-        let clauses_after_check = cnf.clauses().collect::<HashSet<_>>();
+        let cnf = simple_impl::ConjunctiveNormalForm::new(&clauses);
+        let mut solver = Solver::new(cnf);
+        assert_eq!(solver.check_sat(), SatStatus::Sat);
+        let clauses_after_check = solver.clauses().collect::<HashSet<_>>();
         for c in clauses {
             assert!(
                 &clauses_after_check.contains(&c),
